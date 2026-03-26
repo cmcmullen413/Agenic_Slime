@@ -1,0 +1,48 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Program Compile",
+			"type": "shell",
+			"command": "g++",
+			"args": [
+				"-c",
+				"src/main.cpp",
+				"-I",
+				"dependencies/include",
+				"-o",
+				"bin/main.o"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Program Link",
+			"type": "shell",
+			"command": "g++",
+			"args": [
+				"bin/*.o",
+				"-o",
+				"bin/program",
+				"-L",
+				"dependencies/lib",
+				"-lglfw3",
+				"-lglew32s",
+				"-lopengl32",
+				"-lgdi32"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Program build",
+			"dependsOrder": "sequence",
+			"dependsOn": [
+				"Program Compile",
+				"Program Link"
+			],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
+		}
+	]
+}
