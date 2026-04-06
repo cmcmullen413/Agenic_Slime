@@ -5,22 +5,28 @@
 #include <fstream>
 #include <string>
 
-// TEMP
-#include <filesystem>
-
 void window_resize_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow *window);
 void readFile(std::string *fileSource, const char* filePath);
+void simStart();
+void simStep();
+void updateTexture();
 
 // Settings
-const unsigned int SCR_WIDTH = 800;
-const unsigned int SCR_HEIGHT = 600;
+const unsigned int SIM_WIDTH = 16;
+const unsigned int SIM_HEIGHT = 10;
+const unsigned int SIM_TO_SRC_MULTI = 50;
+const unsigned int SCR_WIDTH = SIM_WIDTH*SIM_TO_SRC_MULTI;
+const unsigned int SCR_HEIGHT = SIM_HEIGHT*SIM_TO_SRC_MULTI;
 
 // Shaders
 const char *VERT_SHADER_PATH = "src/shaders/vertShader.vert";
 std::string VERT_SHADER;
 const char *FRAG_SHADER_PATH = "src/shaders/fragShader.frag";
 std::string FRAG_SHADER;
+
+// Simulation Variables
+float points[3*SIM_WIDTH*SIM_HEIGHT];
 
 int main() {
     // Initialize and configure glfw
@@ -104,29 +110,33 @@ int main() {
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    // Set up initial vertex data and color data
-    float bufferData[] = {
-        // Two quads, one for top left, one for bottom right
+    // Create the simulation texture
+    unsigned int TEX;
+    glGenTextures(1, &TEX);
+    glBindTexture(GL_TEXTURE_2D, TEX);
+    // Make the texture display as grey outside of its area
+    float color[] = {0.3f, 0.3f, 0.3f, 1.0f};
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, color);
+    // Tell the texture what to do if the screen pixel doesn't match up with the texture pixel
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    // Checkered Board Pattern
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, SIM_WIDTH, SIM_HEIGHT, 0, GL_RGB, GL_FLOAT, points);
+    simStart();
 
-        // Top left quad (Black)
-        -1.f, 1.f, 0.f, 0.2f, 0.2f, 0.2f,
-        -1.f, 0.f, 0.f, 0.2f, 0.2f, 0.2f,
-        0.f, 1.f, 0.f, 0.2f, 0.2f, 0.2f,
 
-        -1.f, 0.f, 0.f, 0.2f, 0.2f, 0.2f,
-        0.f, 0.f, 0.f, 0.2f, 0.2f, 0.2f,
-        0.f, 1.f, 0.f, 0.2f, 0.2f, 0.2f,
+    // Set up initial vertex, color, and texcoords data
+    float vertices[] = {
+    //  Position        Color             Tex Coords
+        -0.5f, 0.5f,    1.f, 1.f, 1.f,      0.f, 1.f,
+        0.5f, 0.5f,     1.f, 1.f, 1.f,      1.f, 1.f,
+        0.5f, -0.5f,    1.f, 1.f, 1.f,      1.f, 0.f,
 
-
-        // Bottom right quad (White)
-        0.f, 0.f, 0.f, 1.f, 1.f, 1.f,
-        0.f, -1.f, 0.f, 1.f, 1.f, 1.f,
-        1.f, 0.f, 0.f, 1.f, 1.f, 1.f,
-
-        0.f, -1.f, 0.f, 1.f, 1.f, 1.f,
-        1.f, -1.f, 0.f, 1.f, 1.f, 1.f,
-        1.f, 0.f, 0.f, 1.f, 1.f, 1.f
+        -0.5f, 0.5f,    1.f, 1.f, 1.f,      0.f, 1.f,
+        0.5f, -0.5f,    1.f, 1.f, 1.f,      1.f, 0.f,
+        -0.5f, -0.5f,   1.f, 1.f, 1.f,      0.f, 0.f
     };
+    float strideLength = 7*sizeof(float);
 
     // Set up buffers
     //
@@ -137,15 +147,22 @@ int main() {
     glBindVertexArray(VAO);
     // Bind and set Vertex Buffer Object
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(bufferData), bufferData, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
     // Configure VBO attributes
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (GLvoid*)0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (GLvoid*)(3*sizeof(GL_FLOAT)));
+    // Position
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, strideLength, (GLvoid*)0);
+    // Color
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, strideLength, (GLvoid*)(2*sizeof(GL_FLOAT)));
+    // Tex coords
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, strideLength, (GLvoid*)(5*sizeof(GL_FLOAT)));
+    // Enables the attributes
     glEnableVertexAttribArray(0);
     glEnableVertexAttribArray(1);
+    glEnableVertexAttribArray(2);
+    // Unbind the VAO and VBO so theres no risk of accidental modification later
     glBindBuffer(GL_ARRAY_BUFFER, 0);
-    // Unbind the VAO so theres no risk of accidental modification later
     glBindVertexArray(0);
+
 
     // Render loop
     while (!glfwWindowShouldClose(window)) {
@@ -153,13 +170,14 @@ int main() {
         processInput(window);
 
         // Render
-        glClearColor(0.f, 0.f, 1.f, 0.5f);
+        //
+        // Clear background
+        glClearColor(0.5f, 0.5f, 0.5f, 1.f);
         glClear(GL_COLOR_BUFFER_BIT);
-
         // Draw the quads
         glUseProgram(shaderProgram);
         glBindVertexArray(VAO);
-        glDrawArrays(GL_TRIANGLES, 0, 12);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
         glBindVertexArray(0);
 
         // Swap buffers and poll IO
@@ -172,6 +190,10 @@ int main() {
     return 0;
 }
 
+// Key press state holders
+bool SPACE_PRESSED;
+bool R_PRESSED;
+
 /// @brief Checks whether relevent keys were pressed and performs actions accordingly
 /// @param window 
 void processInput(GLFWwindow *window) {
@@ -179,6 +201,16 @@ void processInput(GLFWwindow *window) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, true);
     }
+    // Call a simulation step if SPACE is pressed
+    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
+        if (!SPACE_PRESSED) { simStep(); }
+        SPACE_PRESSED = true;
+    } else { SPACE_PRESSED = false; }
+    // Reset the simulaton if R is pressed
+    if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
+        if (!R_PRESSED) { simStart(); }
+        R_PRESSED = true;
+    } else { R_PRESSED = false; }
 }
 
 /// @brief Updates the windows size whenever something triggers a resize
@@ -203,4 +235,39 @@ void readFile(std::string *fileSource, const char* filePath) {
     *fileSource = std::string(std::istreambuf_iterator<char>(inputFile), std::istreambuf_iterator<char>());
     // Close the file
     inputFile.close();
+}
+
+void simStart() {
+    std::cout << "Sim Start" << std::endl;
+    for (int x = 0; x < SIM_WIDTH; x++) {
+        for (int y = 0; y < SIM_HEIGHT; y++) {
+            int pos = 3*(SIM_WIDTH*y + x);
+            // If x is odd, set the red channel
+            points[pos] = x%2 +0.f;
+            // If y is odd, set the green channel
+            points[pos+1] = y%2 + 0.f;
+            // If the sum is odd, set the blue channel
+            points[pos+2] = (x+y)%2 + 0.f;
+        }
+    }
+    updateTexture();
+}
+
+void simStep() {
+    std::cout << "Sim Step" << std::endl;
+    for (int i = 0; i < 3*SIM_WIDTH*SIM_HEIGHT; i++) {
+        // Increment the color everystep
+        points[i] += 0.1f;
+        // Keeps the colors between 0 and 1
+        if (points[i] > 1.f) {
+            points[i] -= 1.f;
+        }
+    }
+    updateTexture();
+}
+
+void updateTexture() {
+    // Update the texture object
+    // Updates the entire thing at once, not super efficient but it should work for now
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SIM_WIDTH, SIM_HEIGHT, GL_RGB, GL_FLOAT, points);
 }
