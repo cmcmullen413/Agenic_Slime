@@ -6,7 +6,6 @@
 #include <string>
 #include <chrono>
 #include <cmath>
-#include <numbers>
 
 using namespace std;
 
@@ -338,11 +337,27 @@ void simStep(float deltaTime) {
         agents[i] -> x += deltaTime*AGENT_SPEED*cos(agents[i]->d);
         agents[i] -> y += deltaTime*AGENT_SPEED*sin(agents[i]->d);
         // If the agent has hit a wall, make its direction point randomly away from that wall
-        // Left wall
+        // Left wall >> -pi/2 < d < pi/2
         if (agents[i] -> x < 0) {
             agents[i] -> x = 0;
-            agents[i] -> d = randFloat(acos(-1.f));
+            agents[i] -> d = randFloat(acos(-1.f)/2, -acos(-1.f)/2);
         }
+        // Right wall >> pi/2 < d < 3pi/2
+        else if (agents[i] -> x > SIM_WIDTH) {
+            agents[i] -> x = SIM_WIDTH;
+            agents[i] -> d = randFloat(3*acos(-1.f)/2, acos(-1.f)/2);
+        }
+        // Bottom wall >> 0 < d < pi
+        else if (agents[i] -> y < 0) {
+            agents[i] -> y = 0;
+            agents[i] -> d = randFloat(acos(-1.f)/2);
+        }
+        // Top wall >> pi < d < 2pi
+        else if (agents[i] -> y > SIM_HEIGHT) {
+            agents[i] -> y = SIM_HEIGHT;
+            agents[i] -> d = randFloat(2*acos(-1.f), acos(-1.f));
+        }
+        
     }
     updateTexture();
 }
@@ -355,10 +370,11 @@ void updateTexture() {
 
 /// @brief Generates a float randomly between the min and max with a step size of precision
 /// @param max highest that the float can be, must be 0<M
-/// @param min lowest that the float can be, must be 0<=m<M
-/// @param precision the step size of the random float
+/// @param min lowest that the float can be, must be m<M (can be m<0) [default = 0.f]
+/// @param precision the step size of the random float [default = 100000]
 /// @return 
-float randFloat(float max, float min = 0.f, int precision = 100000) {
-    int maxInt = (int) max*precision;
-    return min + (rand() % max*precision)
+float randFloat(float max, float min, int precision) {
+    float stride = max - min;
+    int strideInt = (int) stride*precision;
+    return min + (rand() % strideInt) / stride*precision;
 }
