@@ -22,13 +22,26 @@ void readFile(string *fileSource, const char* filePath);
 void simStart();
 void simStep(float deltaTime);
 void updateTexture();
-float randFloat(float max, float min = 0.f, int precision = 100000);
+float randFloat(float max, float min = 0.f);
+float getPoint(int x, int y);
 
 // Simulation Settings
-const unsigned int SIM_WIDTH = 1000;
-const unsigned int SIM_HEIGHT = 800;
-const unsigned int NUM_AGENTS = 50;
-const float AGENT_SPEED = 1.f;
+const unsigned int SIM_WIDTH = 1600;
+const unsigned int SIM_HEIGHT = 900;
+// The amount the pixels dim w/o blurring each second
+const unsigned int BLURS_PER_SECOND = 100;
+const float BLUR_STRENGTH = 0.95f;
+const float CONSTANT_DIMMING = 0.001f;
+const unsigned int NUM_AGENTS = 4000;
+const float AGENT_SPEED = 100.f;
+// The radius and angle left and right that the agent will scan
+const float SCAN_ANGLE = acos(-1.)/3;
+const float SCAN_RADIUS = 3.f;
+// The chance that an agent will turn towards a trail
+const float FOLLOW_STRENGTH = 0.95f;
+const float STRAIGHT_BIAS = 0.1f;
+// The strength of an agent's turning
+const float TURN_STRENGTH = 8.f;
 
 // OpenGL Settings
 const unsigned int SIM_TO_SRC_MULTI = 1;
@@ -88,6 +101,7 @@ int main() {
         // Update deltaTime
         chrono::steady_clock::time_point curTime = chrono::steady_clock::now();
         deltaTime = chrono::duration_cast<chrono::microseconds>(curTime - lastTime).count() / 1000000.f;
+        lastTime = curTime;
 
         // Input
         processInput(window, deltaTime);
@@ -123,18 +137,15 @@ void simStart() {
     // Pass the time as the random seed
     srand(time(0));
 
-    // Initilize the agents randomly near the center, pointing outwards
+    // Initilize the agents randomly near the center, pointing inwards
     for (int i = 0; i < NUM_AGENTS; i++) {
         // Initialize the agent
         agents[i] = new agent();
 
         // Get random direction
-        float randomAngle = randFloat(2*acos(-1.f));
+        float randomAngle = randFloat(2*acos(-1.f))-acos(-1.f);
         // Get a random distance from the center
         float randomDist = randFloat(1.f);
-
-        // DEBUGGING
-        cout << randomAngle << endl;
 
         // Set the agents position and direction based on the random numbers
         agents[i] -> d = randomAngle;
@@ -143,10 +154,42 @@ void simStart() {
     }
 }
 
+float blurCounter = 0.f;
 void simStep(float deltaTime) {
     // For each agent, set the point it is closest to to 1
     // Then move the agent
     for (int i = 0; i < NUM_AGENTS; i++) {
+        // Turn the agent towards a trail if the lords of chaos deam it worthy
+        if (randFloat(1.f) < FOLLOW_STRENGTH) {
+            // Sample three points infront of the agent
+            float agentX = agents[i] -> x;
+            float agentY = agents[i] -> y;
+            float agentD = agents[i] -> d;
+            // To the left (dir + scanAngle)
+            float leftAngle = agentD+SCAN_ANGLE;
+            float leftStrength = getPoint(round(agentX + cos(leftAngle)), round(agentY + sin(leftAngle)));
+            // To the right (dir - scanAngle)
+            float rightAngle = agentD-SCAN_ANGLE;
+            float rightStrength = getPoint(round(agentX + cos(rightAngle)), round(agentY + sin(rightAngle)));
+            // Stright ahead (dir)
+            float centerStrength = getPoint(round(agentX + cos(agentD)), round(agentY + sin(agentD)));
+
+            // Randomly turn towards one of them based on the strength
+            // Only turn if the sampled points are above an error threshhold
+            if (leftStrength+rightStrength+centerStrength > 0.00001f) {
+                float random = randFloat(leftStrength + rightStrength + centerStrength + STRAIGHT_BIAS);
+                if (random < leftStrength) {
+                    // Turn left
+                    agents[i] -> d += TURN_STRENGTH*deltaTime;
+                }
+                else if (random < leftStrength+rightStrength) {
+                    // Turn right
+                    agents[i] -> d -= TURN_STRENGTH*deltaTime;
+                }
+                // Otherwise continue straight
+            }  
+        }
+
         // Move the agent
         agents[i] -> x += deltaTime*AGENT_SPEED*cos(agents[i]->d);
         agents[i] -> y += deltaTime*AGENT_SPEED*sin(agents[i]->d);
@@ -162,7 +205,7 @@ void simStep(float deltaTime) {
             agents[i] -> d = randFloat(3*acos(-1.f)/2, acos(-1.f)/2);
         }
         // Bottom wall >> 0 < d < pi
-        else if (agents[i] -> y < 0) {
+        if (agents[i] -> y < 0) {
             agents[i] -> y = 0;
             agents[i] -> d = randFloat(acos(-1.f)/2);
         }
@@ -172,26 +215,54 @@ void simStep(float deltaTime) {
             agents[i] -> d = randFloat(2*acos(-1.f), acos(-1.f));
         }
 
-        // Debugging
-        int agentX = agents[i] -> x;
-        int agentY = agents[i] -> y;
-
         // Get closest pixel positions
-        int xPoint = static_cast<int>(agents[i] -> x);
-        int yPoint = static_cast<int>(agents[i] -> y);
+        int xPoint = round(agents[i] -> x);
+        int yPoint = round(agents[i] -> y);
         // Set that point to 1
         points[yPoint*SIM_WIDTH + xPoint] = 1.f;
     }
+    // For each point, slowly fade it over time by blurring it with its surroundings
+    // Only do this X times per second, based on BLURS_PER_SECOND
+    if (blurCounter > 1/BLURS_PER_SECOND) {
+        for (int x = 0; x < SIM_WIDTH; x++) {
+            for (int y = 0; y < SIM_HEIGHT; y++) {
+                // How much weight is given to the the surrounding points
+                float innerBlurStrength = (1-BLUR_STRENGTH);
+                float outerBlurStrength = (1-innerBlurStrength)/8;
+                // Sum all the values
+                float sum = 0.f;
+                for (int h = -1; h <= 1; h++) {
+                    for (int k = -1; k <= 1; k++) {
+                        sum += outerBlurStrength*getPoint(x+k, y+h);
+                    }
+                }
+                // Remove the center point at the current weight
+                sum -= outerBlurStrength*getPoint(x, y);
+                // Add it back with the correct weight
+                sum += innerBlurStrength*getPoint(x, y);
+                points[y*SIM_WIDTH+x] = sum - CONSTANT_DIMMING;
+            }
+        }
+        blurCounter = 0.f;
+    }
+    blurCounter += deltaTime;
+
     updateTexture();
+}
+/// @brief Helper method for blurring pixels
+/// @return the value at the (x, y) position or 0 if it is invalid
+float getPoint(int x, int y) {
+    // Return 0 if the point is invalid
+    if (x < 0 || y < 0 || x > SIM_WIDTH-1 || y > SIM_HEIGHT-1) { return 0; }
+    return points[y*SIM_WIDTH+x];
 }
 
 /// @brief Generates a float randomly between the min and max with a step size of precision
 /// @param max highest that the float can be, must be 0<M
 /// @param min lowest that the float can be, must be m<M (can be m<0) [default = 0.f]
-/// @param precision the step size of the random float [default = 100000]
 /// @return 
-float randFloat(float max, float min, int precision) {
-    return min + (max - min)*(rand() % precision)/precision;
+float randFloat(float max, float min) {
+    return min + (max - min)*((rand() % RAND_MAX)/static_cast<float>(RAND_MAX));
 }
 
 GLFWwindow* initilizeWindow() {
