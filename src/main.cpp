@@ -13,9 +13,9 @@ void simStep();
 void updateTexture();
 
 // Settings
-const unsigned int SIM_WIDTH = 16;
-const unsigned int SIM_HEIGHT = 10;
-const unsigned int SIM_TO_SRC_MULTI = 50;
+const unsigned int SIM_WIDTH = 100;
+const unsigned int SIM_HEIGHT = 100;
+const unsigned int SIM_TO_SRC_MULTI = 8;
 const unsigned int SCR_WIDTH = SIM_WIDTH*SIM_TO_SRC_MULTI;
 const unsigned int SCR_HEIGHT = SIM_HEIGHT*SIM_TO_SRC_MULTI;
 
@@ -26,7 +26,7 @@ const char *FRAG_SHADER_PATH = "src/shaders/fragShader.frag";
 std::string FRAG_SHADER;
 
 // Simulation Variables
-float points[3*SIM_WIDTH*SIM_HEIGHT];
+float points[SIM_WIDTH*SIM_HEIGHT];
 
 int main() {
     // Initialize and configure glfw
@@ -120,23 +120,23 @@ int main() {
     // Tell the texture what to do if the screen pixel doesn't match up with the texture pixel
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    // Checkered Board Pattern
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, SIM_WIDTH, SIM_HEIGHT, 0, GL_RGB, GL_FLOAT, points);
+    // Fill texture
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, SIM_WIDTH, SIM_HEIGHT, 0, GL_RED, GL_FLOAT, points);
     simStart();
 
 
     // Set up initial vertex, color, and texcoords data
     float vertices[] = {
-    //  Position        Color             Tex Coords
-        -0.5f, 0.5f,    1.f, 1.f, 1.f,      0.f, 1.f,
-        0.5f, 0.5f,     1.f, 1.f, 1.f,      1.f, 1.f,
-        0.5f, -0.5f,    1.f, 1.f, 1.f,      1.f, 0.f,
+    //  Position        Tex Coords
+        -1.f, 1.f,      0.f, 1.f,
+        1.f, 1.f,       1.f, 1.f,
+        1.f, -1.f,      1.f, 0.f,
 
-        -0.5f, 0.5f,    1.f, 1.f, 1.f,      0.f, 1.f,
-        0.5f, -0.5f,    1.f, 1.f, 1.f,      1.f, 0.f,
-        -0.5f, -0.5f,   1.f, 1.f, 1.f,      0.f, 0.f
+        -1.f, 1.f,      0.f, 1.f,
+        1.f, -1.f,      1.f, 0.f,
+        -1.f, -1.f,     0.f, 0.f
     };
-    float strideLength = 7*sizeof(float);
+    float strideLength = 4*sizeof(float);
 
     // Set up buffers
     //
@@ -151,14 +151,11 @@ int main() {
     // Configure VBO attributes
     // Position
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, strideLength, (GLvoid*)0);
-    // Color
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, strideLength, (GLvoid*)(2*sizeof(GL_FLOAT)));
     // Tex coords
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, strideLength, (GLvoid*)(5*sizeof(GL_FLOAT)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, strideLength, (GLvoid*)(2*sizeof(GL_FLOAT)));
     // Enables the attributes
     glEnableVertexAttribArray(0);
     glEnableVertexAttribArray(1);
-    glEnableVertexAttribArray(2);
     // Unbind the VAO and VBO so theres no risk of accidental modification later
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
@@ -241,13 +238,14 @@ void simStart() {
     std::cout << "Sim Start" << std::endl;
     for (int x = 0; x < SIM_WIDTH; x++) {
         for (int y = 0; y < SIM_HEIGHT; y++) {
-            int pos = 3*(SIM_WIDTH*y + x);
-            // If x is odd, set the red channel
-            points[pos] = x%2 +0.f;
-            // If y is odd, set the green channel
-            points[pos+1] = y%2 + 0.f;
-            // If the sum is odd, set the blue channel
-            points[pos+2] = (x+y)%2 + 0.f;
+            int pos = SIM_WIDTH*y + x;
+            // If x is even, turn on the pixel
+            if (x % 2 == 0) {
+                points[pos] = 1.f;
+            }
+            else {
+                points[pos] = 0.f;
+            }
         }
     }
     updateTexture();
@@ -269,5 +267,5 @@ void simStep() {
 void updateTexture() {
     // Update the texture object
     // Updates the entire thing at once, not super efficient but it should work for now
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SIM_WIDTH, SIM_HEIGHT, GL_RGB, GL_FLOAT, points);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SIM_WIDTH, SIM_HEIGHT, GL_RED, GL_FLOAT, points);
 }
