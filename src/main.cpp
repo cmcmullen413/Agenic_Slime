@@ -5,6 +5,12 @@
 #include <fstream>
 #include <string>
 
+GLFWwindow* initilizeWindow();
+void loadShaders();
+unsigned int buildShaders();
+unsigned int buildTexture();
+unsigned int createBuffers();
+
 void window_resize_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow *window);
 void readFile(std::string *fileSource, const char* filePath);
@@ -29,6 +35,59 @@ std::string FRAG_SHADER;
 float points[SIM_WIDTH*SIM_HEIGHT];
 
 int main() {
+    // Initilize GLFW, GLAD, and the window
+    GLFWwindow* window = initilizeWindow();
+    // If the window is NULL, it failed to initilize
+    if (window == NULL) {
+        return -1;
+    }
+
+    // Read the shaders from files
+    loadShaders();
+    // If either is empty, they failed to read
+    if (VERT_SHADER.empty() || FRAG_SHADER.empty()) {
+        return -1;
+    }
+
+    // Build and compile shader programs
+    unsigned int shaderProgram = buildShaders();
+
+    // Create the simulation texture
+    unsigned int TEX = buildTexture();
+
+    // Set up buffers
+    unsigned int VAO = createBuffers();
+
+
+    // Render loop
+    while (!glfwWindowShouldClose(window)) {
+        // Input
+        processInput(window);
+
+        // Step simulation
+
+        // Render
+        //
+        // Clear background
+        glClearColor(0.5f, 0.5f, 0.5f, 1.f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        // Draw the triangles
+        glUseProgram(shaderProgram);
+        glBindVertexArray(VAO);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        glBindVertexArray(0);
+
+        // Swap buffers and poll IO
+        glfwSwapBuffers(window);
+        glfwPollEvents();
+    }
+
+    // Terminate glfw to clear resources
+    glfwTerminate();
+    return 0;
+}
+
+GLFWwindow* initilizeWindow() {
     // Initialize and configure glfw
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -40,7 +99,7 @@ int main() {
     if (window == NULL) {
         std::cout << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
-        return -1;
+        return NULL;
     }
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, window_resize_callback);
@@ -49,9 +108,13 @@ int main() {
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cout << "Failed to initialize GLAD" << std::endl;
         glfwTerminate();
-        return -1;
+        return NULL;
     }
 
+    return window;
+}
+
+void loadShaders() {
     // Read in shaders from the files
     //
     // Vertex shader
@@ -59,18 +122,18 @@ int main() {
     if (VERT_SHADER.empty()) {
         std::cout << "FILE ERROR: Could not open vertex shader file" << std::endl;
         glfwTerminate();
-        return -1;
+        return;
     }
     // Fragment Shader
     readFile(&FRAG_SHADER, FRAG_SHADER_PATH);
     if (FRAG_SHADER.empty()) {
         std::cout << "FILE ERROR: Could not open fragment shader file" << std::endl;
         glfwTerminate();
-        return -1;
+        return;
     }
+}
 
-    // Build and compile shader programs
-    //
+unsigned int buildShaders() {
     // Vertex shader
     unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
     const char *vertSource = VERT_SHADER.c_str();
@@ -110,7 +173,10 @@ int main() {
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    // Create the simulation texture
+    return shaderProgram;
+}
+
+unsigned int buildTexture() {
     unsigned int TEX;
     glGenTextures(1, &TEX);
     glBindTexture(GL_TEXTURE_2D, TEX);
@@ -124,8 +190,11 @@ int main() {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, SIM_WIDTH, SIM_HEIGHT, 0, GL_RED, GL_FLOAT, points);
     simStart();
 
+    return TEX;
+}
 
-    // Set up initial vertex, color, and texcoords data
+unsigned int createBuffers() {
+    // Set up initial vertex and texcoords data
     float vertices[] = {
     //  Position        Tex Coords
         -1.f, 1.f,      0.f, 1.f,
@@ -138,8 +207,6 @@ int main() {
     };
     float strideLength = 4*sizeof(float);
 
-    // Set up buffers
-    //
     unsigned int VBO, VAO;
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
@@ -160,31 +227,7 @@ int main() {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 
-
-    // Render loop
-    while (!glfwWindowShouldClose(window)) {
-        // Input
-        processInput(window);
-
-        // Render
-        //
-        // Clear background
-        glClearColor(0.5f, 0.5f, 0.5f, 1.f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        // Draw the quads
-        glUseProgram(shaderProgram);
-        glBindVertexArray(VAO);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-        glBindVertexArray(0);
-
-        // Swap buffers and poll IO
-        glfwSwapBuffers(window);
-        glfwPollEvents();
-    }
-
-    // Terminate glfw to clear resources
-    glfwTerminate();
-    return 0;
+    return VAO;
 }
 
 // Key press state holders
