@@ -6,6 +6,7 @@
 #include <string>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 
 using namespace std;
 
@@ -24,13 +25,13 @@ void updateTexture();
 float randFloat(float max, float min = 0.f, int precision = 100000);
 
 // Simulation Settings
-const unsigned int SIM_WIDTH = 100;
-const unsigned int SIM_HEIGHT = 100;
-const unsigned int NUM_AGENTS = 10;
+const unsigned int SIM_WIDTH = 1000;
+const unsigned int SIM_HEIGHT = 800;
+const unsigned int NUM_AGENTS = 50;
 const float AGENT_SPEED = 1.f;
 
 // OpenGL Settings
-const unsigned int SIM_TO_SRC_MULTI = 8;
+const unsigned int SIM_TO_SRC_MULTI = 1;
 const unsigned int SCR_WIDTH = SIM_WIDTH*SIM_TO_SRC_MULTI;
 const unsigned int SCR_HEIGHT = SIM_HEIGHT*SIM_TO_SRC_MULTI;
 
@@ -112,7 +113,85 @@ int main() {
 
     // Terminate glfw to clear resources
     glfwTerminate();
+    for (int i = 0; i < NUM_AGENTS; i++) {
+        delete(agents[i]);
+    }
     return 0;
+}
+
+void simStart() {
+    // Pass the time as the random seed
+    srand(time(0));
+
+    // Initilize the agents randomly near the center, pointing outwards
+    for (int i = 0; i < NUM_AGENTS; i++) {
+        // Initialize the agent
+        agents[i] = new agent();
+
+        // Get random direction
+        float randomAngle = randFloat(2*acos(-1.f));
+        // Get a random distance from the center
+        float randomDist = randFloat(1.f);
+
+        // DEBUGGING
+        cout << randomAngle << endl;
+
+        // Set the agents position and direction based on the random numbers
+        agents[i] -> d = randomAngle;
+        agents[i] -> x = SIM_WIDTH/2 + randomDist*cos(randomAngle);
+        agents[i] -> y = SIM_HEIGHT/2 + randomDist*sin(randomAngle);
+    }
+}
+
+void simStep(float deltaTime) {
+    // For each agent, set the point it is closest to to 1
+    // Then move the agent
+    for (int i = 0; i < NUM_AGENTS; i++) {
+        // Move the agent
+        agents[i] -> x += deltaTime*AGENT_SPEED*cos(agents[i]->d);
+        agents[i] -> y += deltaTime*AGENT_SPEED*sin(agents[i]->d);
+        // If the agent has hit a wall, make its direction point randomly away from that wall
+        // Left wall >> -pi/2 < d < pi/2
+        if (agents[i] -> x < 0) {
+            agents[i] -> x = 0;
+            agents[i] -> d = randFloat(acos(-1.f)/2, -acos(-1.f)/2);
+        }
+        // Right wall >> pi/2 < d < 3pi/2
+        else if (agents[i] -> x > (SIM_WIDTH-1)) {
+            agents[i] -> x = SIM_WIDTH-1;
+            agents[i] -> d = randFloat(3*acos(-1.f)/2, acos(-1.f)/2);
+        }
+        // Bottom wall >> 0 < d < pi
+        else if (agents[i] -> y < 0) {
+            agents[i] -> y = 0;
+            agents[i] -> d = randFloat(acos(-1.f)/2);
+        }
+        // Top wall >> pi < d < 2pi
+        else if (agents[i] -> y > (SIM_HEIGHT-1)) {
+            agents[i] -> y = SIM_HEIGHT-1;
+            agents[i] -> d = randFloat(2*acos(-1.f), acos(-1.f));
+        }
+
+        // Debugging
+        int agentX = agents[i] -> x;
+        int agentY = agents[i] -> y;
+
+        // Get closest pixel positions
+        int xPoint = static_cast<int>(agents[i] -> x);
+        int yPoint = static_cast<int>(agents[i] -> y);
+        // Set that point to 1
+        points[yPoint*SIM_WIDTH + xPoint] = 1.f;
+    }
+    updateTexture();
+}
+
+/// @brief Generates a float randomly between the min and max with a step size of precision
+/// @param max highest that the float can be, must be 0<M
+/// @param min lowest that the float can be, must be m<M (can be m<0) [default = 0.f]
+/// @param precision the step size of the random float [default = 100000]
+/// @return 
+float randFloat(float max, float min, int precision) {
+    return min + (max - min)*(rand() % precision)/precision;
 }
 
 GLFWwindow* initilizeWindow() {
@@ -257,10 +336,6 @@ unsigned int createBuffers() {
     return VAO;
 }
 
-// Key press state holders
-bool SPACE_PRESSED;
-bool R_PRESSED;
-
 /// @brief Checks whether relevent keys were pressed and performs actions accordingly
 /// @param window 
 void processInput(GLFWwindow *window, float deltaTime) {
@@ -268,16 +343,6 @@ void processInput(GLFWwindow *window, float deltaTime) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, true);
     }
-    // Call a simulation step if SPACE is pressed
-    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
-        if (!SPACE_PRESSED) { simStep(deltaTime); }
-        SPACE_PRESSED = true;
-    } else { SPACE_PRESSED = false; }
-    // Reset the simulaton if R is pressed
-    if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
-        if (!R_PRESSED) { simStart(); }
-        R_PRESSED = true;
-    } else { R_PRESSED = false; }
 }
 
 /// @brief Updates the windows size whenever something triggers a resize
@@ -304,77 +369,8 @@ void readFile(string *fileSource, const char* filePath) {
     inputFile.close();
 }
 
-void simStart() {
-    // Pass the time as the random seed
-    srand(time(0));
-
-    // Initilize the agents randomly near the center, pointing outwards
-    for (int i = 0; i < NUM_AGENTS; i++) {
-        // TODO: Probably a more rigorous way to do this, but this will work for now
-
-        // Get random direction
-        float randomAngle = randFloat(2*acos(-1.f));
-        // Get a random distance from the center
-        float randomDist = randFloat(1.f);
-
-        // Set the agents position and direction based on the random numbers
-        agents[i] -> d = randomAngle;
-        agents[i] -> x = randomDist*cos(randomAngle);
-        agents[i] -> y = randomDist*sin(randomAngle);
-    }
-}
-
-void simStep(float deltaTime) {
-    // For each agent, set the point it is closest to to 1
-    // Then move the agent
-    for (int i = 0; i < NUM_AGENTS; i++) {
-        // Get closest pixel positions
-        int x = round(agents[i] -> x);
-        int y = round(agents[i] -> y);
-        // Set that point to 1
-        points[y*SIM_WIDTH + x] = 1.f;
-        // Now move the agent
-        agents[i] -> x += deltaTime*AGENT_SPEED*cos(agents[i]->d);
-        agents[i] -> y += deltaTime*AGENT_SPEED*sin(agents[i]->d);
-        // If the agent has hit a wall, make its direction point randomly away from that wall
-        // Left wall >> -pi/2 < d < pi/2
-        if (agents[i] -> x < 0) {
-            agents[i] -> x = 0;
-            agents[i] -> d = randFloat(acos(-1.f)/2, -acos(-1.f)/2);
-        }
-        // Right wall >> pi/2 < d < 3pi/2
-        else if (agents[i] -> x > SIM_WIDTH) {
-            agents[i] -> x = SIM_WIDTH;
-            agents[i] -> d = randFloat(3*acos(-1.f)/2, acos(-1.f)/2);
-        }
-        // Bottom wall >> 0 < d < pi
-        else if (agents[i] -> y < 0) {
-            agents[i] -> y = 0;
-            agents[i] -> d = randFloat(acos(-1.f)/2);
-        }
-        // Top wall >> pi < d < 2pi
-        else if (agents[i] -> y > SIM_HEIGHT) {
-            agents[i] -> y = SIM_HEIGHT;
-            agents[i] -> d = randFloat(2*acos(-1.f), acos(-1.f));
-        }
-        
-    }
-    updateTexture();
-}
-
 void updateTexture() {
     // Update the texture object
     // Updates the entire thing at once, not super efficient but it should work for now
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SIM_WIDTH, SIM_HEIGHT, GL_RED, GL_FLOAT, points);
-}
-
-/// @brief Generates a float randomly between the min and max with a step size of precision
-/// @param max highest that the float can be, must be 0<M
-/// @param min lowest that the float can be, must be m<M (can be m<0) [default = 0.f]
-/// @param precision the step size of the random float [default = 100000]
-/// @return 
-float randFloat(float max, float min, int precision) {
-    float stride = max - min;
-    int strideInt = (int) stride*precision;
-    return min + (rand() % strideInt) / stride*precision;
 }
