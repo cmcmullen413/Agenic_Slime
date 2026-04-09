@@ -7,10 +7,6 @@ out vec4 FragColor;
 uniform sampler2D tex;
 
 void main() {
-    if (texture(tex, texCoord) == vec4(1.f, 0.f, 0.f, 1.f)) {
-        FragColor = vec4(1.f, 1.f, 1.f, 1.f);
-    }
-    else {
-        FragColor = vec4(0.f, 0.f, 0.f, 1.f);
-    }
+    float strength = texture(tex, texCoord).r;
+    FragColor = vec4(strength*vec3(1.f, 1.f, 1.f), 1.f);
 }

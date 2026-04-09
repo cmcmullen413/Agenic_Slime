@@ -4,6 +4,11 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <chrono>
+#include <cmath>
+#include <numbers>
+
+using namespace std;
 
 GLFWwindow* initilizeWindow();
 void loadShaders();
@@ -12,27 +17,43 @@ unsigned int buildTexture();
 unsigned int createBuffers();
 
 void window_resize_callback(GLFWwindow* window, int width, int height);
-void processInput(GLFWwindow *window);
-void readFile(std::string *fileSource, const char* filePath);
+void processInput(GLFWwindow *window, float deltaTime);
+void readFile(string *fileSource, const char* filePath);
 void simStart();
-void simStep();
+void simStep(float deltaTime);
 void updateTexture();
+float randFloat(float max, float min = 0.f, int precision = 100000);
 
-// Settings
+// Simulation Settings
 const unsigned int SIM_WIDTH = 100;
 const unsigned int SIM_HEIGHT = 100;
+const unsigned int NUM_AGENTS = 10;
+const float AGENT_SPEED = 1.f;
+
+// OpenGL Settings
 const unsigned int SIM_TO_SRC_MULTI = 8;
 const unsigned int SCR_WIDTH = SIM_WIDTH*SIM_TO_SRC_MULTI;
 const unsigned int SCR_HEIGHT = SIM_HEIGHT*SIM_TO_SRC_MULTI;
 
 // Shaders
 const char *VERT_SHADER_PATH = "src/shaders/vertShader.vert";
-std::string VERT_SHADER;
+string VERT_SHADER;
 const char *FRAG_SHADER_PATH = "src/shaders/fragShader.frag";
-std::string FRAG_SHADER;
+string FRAG_SHADER;
+
+// Structs
+struct agent {
+    // X position
+    float x;
+    // Y position
+    float y;
+    // Facing direction
+    float d;
+};
 
 // Simulation Variables
 float points[SIM_WIDTH*SIM_HEIGHT];
+struct agent* agents[NUM_AGENTS];
 
 int main() {
     // Initilize GLFW, GLAD, and the window
@@ -58,13 +79,21 @@ int main() {
     // Set up buffers
     unsigned int VAO = createBuffers();
 
-
+    // Initilize the simulation and deltaTime variables
+    simStart();
+    chrono::steady_clock::time_point lastTime = chrono::steady_clock::now();
+    float deltaTime = 0.f;
     // Render loop
     while (!glfwWindowShouldClose(window)) {
+        // Update deltaTime
+        chrono::steady_clock::time_point curTime = chrono::steady_clock::now();
+        deltaTime = chrono::duration_cast<chrono::microseconds>(curTime - lastTime).count() / 1000000.f;
+
         // Input
-        processInput(window);
+        processInput(window, deltaTime);
 
         // Step simulation
+        simStep(deltaTime);
 
         // Render
         //
@@ -97,7 +126,7 @@ GLFWwindow* initilizeWindow() {
     // Create the window
     GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "LearnOpenGL", NULL, NULL);
     if (window == NULL) {
-        std::cout << "Failed to create GLFW window" << std::endl;
+        cout << "Failed to create GLFW window" << endl;
         glfwTerminate();
         return NULL;
     }
@@ -106,7 +135,7 @@ GLFWwindow* initilizeWindow() {
 
     // Initialize GLAD
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        std::cout << "Failed to initialize GLAD" << std::endl;
+        cout << "Failed to initialize GLAD" << endl;
         glfwTerminate();
         return NULL;
     }
@@ -120,14 +149,14 @@ void loadShaders() {
     // Vertex shader
     readFile(&VERT_SHADER, VERT_SHADER_PATH);
     if (VERT_SHADER.empty()) {
-        std::cout << "FILE ERROR: Could not open vertex shader file" << std::endl;
+        cout << "FILE ERROR: Could not open vertex shader file" << endl;
         glfwTerminate();
         return;
     }
     // Fragment Shader
     readFile(&FRAG_SHADER, FRAG_SHADER_PATH);
     if (FRAG_SHADER.empty()) {
-        std::cout << "FILE ERROR: Could not open fragment shader file" << std::endl;
+        cout << "FILE ERROR: Could not open fragment shader file" << endl;
         glfwTerminate();
         return;
     }
@@ -145,7 +174,7 @@ unsigned int buildShaders() {
     glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
     if (!success) {
         glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-        std::cout << "SHADER ERROR: Vertex compilation failed" << infoLog << std::endl;
+        cout << "SHADER ERROR: Vertex compilation failed" << infoLog << endl;
     }
     // Fragment shader
     unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
@@ -156,7 +185,7 @@ unsigned int buildShaders() {
     glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
     if (!success) {
         glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-        std::cout << "SHADER ERROR: Fragment compilation failed" << infoLog << std::endl;
+        cout << "SHADER ERROR: Fragment compilation failed" << infoLog << endl;
     }
     // Link the shaders
     unsigned int shaderProgram = glCreateProgram();
@@ -167,7 +196,7 @@ unsigned int buildShaders() {
     glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
     if (!success) {
         glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
-        std::cout << "SHADER ERROR: Linking failed" << infoLog << std::endl;
+        cout << "SHADER ERROR: Linking failed" << infoLog << endl;
     }
     // Clean up the shaders now that linking is done
     glDeleteShader(vertexShader);
@@ -188,7 +217,6 @@ unsigned int buildTexture() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     // Fill texture
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, SIM_WIDTH, SIM_HEIGHT, 0, GL_RED, GL_FLOAT, points);
-    simStart();
 
     return TEX;
 }
@@ -236,14 +264,14 @@ bool R_PRESSED;
 
 /// @brief Checks whether relevent keys were pressed and performs actions accordingly
 /// @param window 
-void processInput(GLFWwindow *window) {
+void processInput(GLFWwindow *window, float deltaTime) {
     // Close the window if ESC is pressed
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, true);
     }
     // Call a simulation step if SPACE is pressed
     if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
-        if (!SPACE_PRESSED) { simStep(); }
+        if (!SPACE_PRESSED) { simStep(deltaTime); }
         SPACE_PRESSED = true;
     } else { SPACE_PRESSED = false; }
     // Reset the simulaton if R is pressed
@@ -267,41 +295,53 @@ void window_resize_callback(GLFWwindow* window, int width, int height)
 /// @brief Reads all the text from a file
 /// @param fileSource the string to save the data too
 /// @param filePath 
-void readFile(std::string *fileSource, const char* filePath) {
+void readFile(string *fileSource, const char* filePath) {
     // Open the file
-    std::ifstream inputFile(filePath);
+    ifstream inputFile(filePath);
     if (!inputFile.is_open()) { *fileSource = ""; return ; }
     // Read the file
-    *fileSource = std::string(std::istreambuf_iterator<char>(inputFile), std::istreambuf_iterator<char>());
+    *fileSource = string(istreambuf_iterator<char>(inputFile), istreambuf_iterator<char>());
     // Close the file
     inputFile.close();
 }
 
 void simStart() {
-    std::cout << "Sim Start" << std::endl;
-    for (int x = 0; x < SIM_WIDTH; x++) {
-        for (int y = 0; y < SIM_HEIGHT; y++) {
-            int pos = SIM_WIDTH*y + x;
-            // If x is even, turn on the pixel
-            if (x % 2 == 0) {
-                points[pos] = 1.f;
-            }
-            else {
-                points[pos] = 0.f;
-            }
-        }
+    // Pass the time as the random seed
+    srand(time(0));
+
+    // Initilize the agents randomly near the center, pointing outwards
+    for (int i = 0; i < NUM_AGENTS; i++) {
+        // TODO: Probably a more rigorous way to do this, but this will work for now
+
+        // Get random direction
+        float randomAngle = randFloat(2*acos(-1.f));
+        // Get a random distance from the center
+        float randomDist = randFloat(1.f);
+
+        // Set the agents position and direction based on the random numbers
+        agents[i] -> d = randomAngle;
+        agents[i] -> x = randomDist*cos(randomAngle);
+        agents[i] -> y = randomDist*sin(randomAngle);
     }
-    updateTexture();
 }
 
-void simStep() {
-    std::cout << "Sim Step" << std::endl;
-    for (int i = 0; i < 3*SIM_WIDTH*SIM_HEIGHT; i++) {
-        // Increment the color everystep
-        points[i] += 0.1f;
-        // Keeps the colors between 0 and 1
-        if (points[i] > 1.f) {
-            points[i] -= 1.f;
+void simStep(float deltaTime) {
+    // For each agent, set the point it is closest to to 1
+    // Then move the agent
+    for (int i = 0; i < NUM_AGENTS; i++) {
+        // Get closest pixel positions
+        int x = round(agents[i] -> x);
+        int y = round(agents[i] -> y);
+        // Set that point to 1
+        points[y*SIM_WIDTH + x] = 1.f;
+        // Now move the agent
+        agents[i] -> x += deltaTime*AGENT_SPEED*cos(agents[i]->d);
+        agents[i] -> y += deltaTime*AGENT_SPEED*sin(agents[i]->d);
+        // If the agent has hit a wall, make its direction point randomly away from that wall
+        // Left wall
+        if (agents[i] -> x < 0) {
+            agents[i] -> x = 0;
+            agents[i] -> d = randFloat(acos(-1.f));
         }
     }
     updateTexture();
@@ -311,4 +351,14 @@ void updateTexture() {
     // Update the texture object
     // Updates the entire thing at once, not super efficient but it should work for now
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SIM_WIDTH, SIM_HEIGHT, GL_RED, GL_FLOAT, points);
+}
+
+/// @brief Generates a float randomly between the min and max with a step size of precision
+/// @param max highest that the float can be, must be 0<M
+/// @param min lowest that the float can be, must be 0<=m<M
+/// @param precision the step size of the random float
+/// @return 
+float randFloat(float max, float min = 0.f, int precision = 100000) {
+    int maxInt = (int) max*precision;
+    return min + (rand() % max*precision)
 }
